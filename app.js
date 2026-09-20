@@ -276,6 +276,22 @@ function getLatestSummary() {
   );
 }
 
+// 列名の空白・全角括弧の違いを吸収して取得する。
+function renderOtherFish(row) {
+  const target = "今釣れてる魚(アキアジ以外)";
+  const key = Object.keys(row || {}).find(
+    name => name.normalize("NFKC").replace(/\s+/g, "") === target
+  );
+  const value = normalizeField(key ? row[key] : "");
+
+  return `
+    <div class="detail other-fish">
+      <strong>🐟 今釣れてる魚（アキアジ以外）</strong>
+      <p style="white-space: pre-wrap; overflow-wrap: anywhere;">${escapeHtml(value || "情報未確認")}</p>
+    </div>
+  `;
+}
+
 function renderSummary() {
   const rows = getLatestSummary().sort(
     (a, b) =>
@@ -357,6 +373,8 @@ function renderSummary() {
               ? `<p>💡 ${escapeHtml(row["狙い目・注意"])}</p>`
               : ""
           }
+
+          ${renderOtherFish(row)}
 
           <div class="meta">
             更新 ${escapeHtml(row["更新時刻"] || "-")}
@@ -758,6 +776,8 @@ function renderMap() {
               `
               : ""
           }
+
+          ${renderOtherFish(summary)}
 
           ${
             latestCatch

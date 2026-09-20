@@ -18,7 +18,7 @@
     <div class="filter-row"><label>時間帯<select id="time"><option value="all">すべて</option><option value="朝">朝</option><option value="昼">昼</option><option value="夕">夕</option><option value="夜">夜</option></select></label><label>開始日<input type="text" id="dateFrom" class="date-filter" inputmode="numeric" placeholder="YYYY-MM-DD" maxlength="10"></label></div>
     <div class="filter-row"><label>終了日<input type="text" id="dateTo" class="date-filter" inputmode="numeric" placeholder="YYYY-MM-DD" maxlength="10"></label><label>並び順<select id="sort"><option value="new">新しい順</option><option value="old">古い順</option><option value="catch">釣果数順</option><option value="trust">信頼度順</option></select></label></div>
   </div><div class="bar"><strong id="count">0件</strong><button id="reset">条件クリア</button></div><div id="cards"></div></section>
-  <section id="map" class="page"><h2>北海道釣果マップ</h2><div class="map-info">ピンをタップすると、そのエリアの最新状況を確認できます。</div><div id="boatCatchStatus" class="map-info">🚤 直近7日：船アキアジ釣果を確認中…</div><div id="salmonMap"></div><div class="map-legend"><span>🟢 有望</span><span>🟡 監視・新報待ち</span><span>⚪ その他</span><span>🚤 船アキアジ釣果</span></div></section>
+  <section id="map" class="page"><h2>北海道釣果マップ</h2><div class="map-info">ピンをタップすると、そのエリアの最新状況を確認できます。</div><div id="boatCatchStatus" class="map-info">🚤 直近7日：船アキアジ実釣を確認中…</div><div id="salmonMap"></div><div class="map-legend"><span>🟢 有望</span><span>🟡 監視・新報待ち</span><span>⚪ その他</span><span>🚤 船アキアジ実釣確認</span></div></section>
   <section id="analysis" class="page">
     <h2>過去分析</h2>
     <div id="analysisBox" style="display:none"></div>
@@ -39,5 +39,14 @@
 <script src="source-links.js?v=20260920-1535"></script>
 <script src="map-load-fix.js?v=20260920-1600"></script>
 <script src="regulation-filter.js?v=20260920-1620"></script>
-<script src="boat-markers.js?v=20260920-1713"></script>
+<script src="boat-markers.js?v=20260920-1718"></script>
+<script>
+  // フェイルセーフ：船マーカースクリプトが確定表示できなかった場合でも「確認中」のまま残さない。
+  setTimeout(() => {
+    const el = document.getElementById('boatCatchStatus');
+    if (el && el.textContent.includes('確認中')) {
+      el.textContent = '🚤 直近7日：アキアジ実釣を確認できた船情報なし';
+    }
+  }, 5000);
+</script>
 </body></html>

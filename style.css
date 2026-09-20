@@ -48,7 +48,8 @@ h2{margin-top:4px;}
   align-items:start;
 }
 .filters label{
-  display:block;
+  display:flex;
+  flex-direction:column;
   min-width:0;
   font-size:12px;
   font-weight:700;
@@ -59,13 +60,31 @@ h2{margin-top:4px;}
   width:100%;
   min-width:0;
   height:42px;
+  min-height:42px;
+  max-height:42px;
   margin-top:5px;
   padding:8px;
   border:1px solid #d6e0e4;
   border-radius:10px;
   background:white;
   color:#17242c;
+  font-family:inherit;
   font-size:15px;
+  line-height:24px;
+}
+/* iOS Safari gives empty date controls a larger intrinsic height unless it is reset. */
+.filters input[type="date"]{
+  -webkit-appearance:none;
+  appearance:none;
+  height:42px !important;
+  min-height:42px !important;
+  max-height:42px !important;
+  padding:8px !important;
+  line-height:24px;
+}
+.filters input[type="date"]::-webkit-date-and-time-value{
+  min-height:24px;
+  text-align:left;
 }
 
 .top,.bar{display:flex;justify-content:space-between;gap:8px;align-items:center;}

@@ -123,7 +123,27 @@ function setupAreas() {
       .join("");
 }
 
+function setupFishSpecies() {
+  const select = document.getElementById("fish");
+  if (!select) return;
+
+  const values = [
+    ...new Set(
+      catches
+        .map(x => normalizeField(x["魚種"]))
+        .filter(Boolean)
+    )
+  ].sort((a, b) => a.localeCompare(b, "ja"));
+
+  select.innerHTML =
+    `<option value="all">すべて</option>` +
+    values
+      .map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`)
+      .join("");
+}
+
 function render() {
+  const fish = document.getElementById("fish")?.value || "all";
   const area = document.getElementById("area")?.value || "all";
   const caught = document.getElementById("caught")?.value || "all";
   const trust = document.getElementById("trust")?.value || "all";
@@ -133,12 +153,14 @@ function render() {
   const sort = document.getElementById("sort")?.value || "new";
 
   let rows = catches.filter(row => {
+    const rowFish = normalizeField(row["魚種"]);
     const rowArea = normalizeField(row["エリア"]);
     const rowTime = normalizeField(row["時間帯"]);
     const rowTrust = normalizeField(row["信頼度"]);
     const rowDate = getDate(row);
     const count = getCatchCount(row);
 
+    if (fish !== "all" && rowFish !== fish) return false;
     if (area !== "all" && rowArea !== area) return false;
 
     if (caught === "yes" && count <= 0) return false;
@@ -482,474 +504,200 @@ function markerColor(summary) {
     text.includes("魚は確認") ||
     text.includes("重点")
   ) {
-    return "#25a55f";
+    return "#2ecc71";
   }
 
   if (
     text.includes("監視") ||
-    text.includes("様子見") ||
-    text.includes("新報待ち")
+    text.includes("新報待ち") ||
+    text.includes("様子見")
   ) {
-    return "#e0a71b";
+    return "#f1c40f";
   }
 
-  return "#89979f";
+  return "#95a5a6";
 }
 
-function makeEmojiIcon(emoji, className = "") {
+function makeDivIcon(color) {
   return L.divIcon({
-    className: "",
-
-    html: `
-      <div class="${className}" style="
-        width:36px;
-        height:36px;
-        border-radius:50%;
-        background:white;
-        display:flex;
-        align-items:center;
-        justify-content:center;
-        font-size:22px;
-        box-shadow:0 2px 10px #0004;
-        border:2px solid white;
-      ">${emoji}</div>
-    `,
-
-    iconSize: [36, 36],
-    iconAnchor: [18, 18],
-    popupAnchor: [0, -18]
+    className: "salmon-div-icon",
+    html: `<div style="width:22px;height:22px;border-radius:50%;background:${color};border:3px solid white;box-shadow:0 1px 6px rgba(0,0,0,.45);"></div>`,
+    iconSize: [22, 22],
+    iconAnchor: [11, 11],
+    popupAnchor: [0, -12]
   });
 }
 
-function mapPointPopup(point) {
+function makeEmojiIcon(emoji) {
+  return L.divIcon({
+    className: "emoji-div-icon",
+    html: `<div style="font-size:26px;line-height:28px;text-shadow:0 1px 4px rgba(255,255,255,.95),0 1px 5px rgba(0,0,0,.35);">${emoji}</div>`,
+    iconSize: [30, 30],
+    iconAnchor: [15, 15],
+    popupAnchor: [0, -15]
+  });
+}
+
+function summaryPopup(master, summary, latestCatch) {
+  const name =
+    normalizeField(master["表示名"] || master["地域"] || "未設定");
+
+  const latestCatchText = latestCatch
+    ? `${getDate(latestCatch) || "日付不明"} / ${normalizeField(latestCatch["具体地点"]) || "地点不明"} / ${normalizeField(latestCatch["釣果本数"]) || "0"}本`
+    : "釣果記録なし";
+
   return `
-    <div class="map-popup">
+    <div style="min-width:220px;max-width:280px;">
+      <strong>${escapeHtml(name)}</strong>
+      <hr>
+      <div><b>総合判定:</b> ${escapeHtml(summary?.["総合判定"] || "未確認")}</div>
+      <div><b>直近実釣:</b> ${escapeHtml(latestCatchText)}</div>
+      <div><b>群れ・接岸:</b> ${escapeHtml(summary?.["群れ・接岸"] || "未確認")}</div>
+      <div><b>狙い目:</b> ${escapeHtml(summary?.["狙い目・注意"] || "未確認")}</div>
+      <br>
+      <button onclick="openAreaSearch('${escapeHtml(normalizeField(master["地域"] || name))}')">このエリアの釣果を見る</button>
+    </div>
+  `;
+}
 
-      <h3>
-        ${escapeHtml(point["アイコン"] || "📍")}
-        ${escapeHtml(point["地点名"] || "地点")}
-      </h3>
+function mapPointPopup(point) {
+  const type = normalizeField(point["種別"]);
+  const name = normalizeField(point["地点名"] || point["名称"] || "地点");
+  const note = normalizeField(point["備考"] || point["メモ"]);
 
-      <div class="region">
-        ${escapeHtml(point["種別"] || "")}
-      </div>
-
-      ${
-        point["注意・メモ"]
-          ? `<div class="detail">
-              ${escapeHtml(point["注意・メモ"])}
-            </div>`
-          : ""
-      }
-
-      ${
-        point["情報元"]
-          ? `<div class="detail">
-              情報元：${escapeHtml(point["情報元"])}
-            </div>`
-          : ""
-      }
-
+  return `
+    <div style="min-width:200px;max-width:280px;">
+      <strong>${escapeHtml(name)}</strong>
+      <hr>
+      <div><b>種別:</b> ${escapeHtml(type || "未設定")}</div>
+      ${note ? `<div>${escapeHtml(note)}</div>` : ""}
     </div>
   `;
 }
 
 function regulationPopup(row) {
-  const left =
-    normalizeField(row["左海岸m"]);
-
-  const right =
-    normalizeField(row["右海岸m"]);
-
-  const offshore =
-    normalizeField(row["沖合距離m"]);
-
-  const leftBearing =
-    normalizeField(row["沖合左方"]);
-
-  const rightBearing =
-    normalizeField(row["沖合右方"]);
-
-  const url =
-    normalizeField(row["公式URL"]);
+  const river = normalizeField(row["河川名"] || "河川名未確認");
+  const start = normalizeField(row["開始日"]);
+  const end = normalizeField(row["終了日"]);
+  const left = normalizeField(row["左岸距離"]);
+  const right = normalizeField(row["右岸距離"]);
+  const offshore = normalizeField(row["沖合距離"]);
+  const source = normalizeField(row["公式情報源URL"]);
+  const checked = normalizeField(row["最終確認日時"]);
 
   return `
-    <div class="map-popup">
-
-      <h3>
-        ⚠️ ${escapeHtml(row["河川名"] || "河口規制")}
-      </h3>
-
-      <div class="region">
-        ${escapeHtml(row["振興局"] || "")}・河口規制
-      </div>
-
-      <div class="status">
-        🚫 ${escapeHtml(row["禁止対象"] || "さけ・ます")}
-      </div>
-
-      <div class="detail">
-        <strong>禁止期間：</strong>
-        ${escapeHtml(row["禁止期間"] || "-")}
-      </div>
-
-      <div class="detail">
-        <strong>海岸：</strong>
-        左 ${escapeHtml(left || "-")}m /
-        右 ${escapeHtml(right || "-")}m
-      </div>
-
-      <div class="detail">
-        <strong>沖合：</strong>
-        ${escapeHtml(offshore || "-")}m
-      </div>
-
-      ${
-        leftBearing || rightBearing
-          ? `
-            <div class="detail">
-              <strong>沖合方位：</strong>
-              左 ${escapeHtml(leftBearing || "-")} /
-              右 ${escapeHtml(rightBearing || "-")}
-            </div>
-          `
-          : ""
-      }
-
-      <div class="detail">
-        <strong>最終確認：</strong>
-        ${escapeHtml(row["最終確認日"] || "-")}
-      </div>
-
-      <div class="detail">
-        <strong>座標：</strong>
-        ${escapeHtml(row["座標確認状態"] || "-")}
-      </div>
-
-      ${
-        row["備考"]
-          ? `<div class="detail">
-              ${escapeHtml(row["備考"])}
-            </div>`
-          : ""
-      }
-
-      ${
-        url
-          ? `
-            <button
-              onclick="window.open('${escapeHtml(
-                url
-              )}','_blank','noopener')"
-            >
-              北海道の公式情報を確認
-            </button>
-          `
-          : ""
-      }
-
+    <div style="min-width:220px;max-width:300px;">
+      <strong>⚠️ ${escapeHtml(river)} 河口規制</strong>
+      <hr>
+      <div><b>期間:</b> ${escapeHtml(start || "未確認")} ～ ${escapeHtml(end || "未確認")}</div>
+      <div><b>左岸:</b> ${escapeHtml(left || "未確認")}</div>
+      <div><b>右岸:</b> ${escapeHtml(right || "未確認")}</div>
+      <div><b>沖合:</b> ${escapeHtml(offshore || "未確認")}</div>
+      <div><b>最終確認:</b> ${escapeHtml(checked || "未確認")}</div>
+      ${source ? `<div><a href="${escapeHtml(source)}" target="_blank" rel="noopener noreferrer">公式根拠を開く</a></div>` : ""}
     </div>
   `;
 }
 
 function renderMap() {
-  const mapEl =
-    document.getElementById("salmonMap");
+  if (mapRendered || !window.L) return;
 
-  if (!mapEl || typeof L === "undefined") {
-    return;
-  }
+  const mapEl = document.getElementById("salmonMap");
+  if (!mapEl) return;
 
-  // ========================================
-  // 初回作成
-  // ========================================
-  if (!salmonMap) {
-    salmonMap = L.map("salmonMap", {
-      zoomControl: true,
-      minZoom: 5
-    });
+  salmonMap = L.map("salmonMap", {
+    zoomControl: true,
+    minZoom: 5,
+    maxZoom: 18
+  }).setView(HOKKAIDO_CENTER, HOKKAIDO_ZOOM);
 
-    L.tileLayer(
-      "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-      {
-        maxZoom: 19,
-        attribution:
-          "&copy; OpenStreetMap contributors"
-      }
-    ).addTo(salmonMap);
-  }
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: "&copy; OpenStreetMap"
+  }).addTo(salmonMap);
 
-  // ========================================
-  // 毎回 北海道から表示
-  // ========================================
-  salmonMap.setView(
-    HOKKAIDO_CENTER,
-    HOKKAIDO_ZOOM,
-    {
-      animate: false
-    }
-  );
-
-  // 古いマーカーを削除
-  salmonMap.eachLayer(layer => {
-    if (!(layer instanceof L.TileLayer)) {
-      salmonMap.removeLayer(layer);
-    }
-  });
-
-  // ========================================
-  // ① エリア最新状況
-  // ========================================
   areaMasters
-    .filter(master =>
-      isTrue(master["追跡対象"])
-    )
+    .filter(row => isHokkaidoLatLng(row["緯度"], row["経度"]))
     .forEach(master => {
-      const lat =
-        Number(master["緯度"]);
+      const lat = Number(master["緯度"]);
+      const lng = Number(master["経度"]);
+      const summary = findSummaryForArea(master);
+      const latestCatch = findLatestCatch(master);
+      const color = markerColor(summary);
 
-      const lng =
-        Number(master["経度"]);
-
-      // 北海道外の異常座標は表示しない
-      if (!isHokkaidoLatLng(lat, lng)) {
-        console.warn(
-          "北海道外のエリア座標を除外:",
-          master["表示名"],
-          lat,
-          lng
-        );
-        return;
-      }
-
-      const summary =
-        findSummaryForArea(master);
-
-      const latestCatch =
-        findLatestCatch(master);
-
-      const color =
-        markerColor(summary);
-
-      const marker =
-        L.circleMarker(
-          [lat, lng],
-          {
-            radius: 11,
-            color: "#ffffff",
-            weight: 3,
-            fillColor: color,
-            fillOpacity: 0.95
-          }
-        ).addTo(salmonMap);
-
-      const searchArea =
-        normalizeField(master["地域"]) ||
-        normalizeField(master["表示名"]);
-
-      marker.bindPopup(`
-        <div class="map-popup">
-
-          <h3>
-            ${escapeHtml(master["表示名"] || "-")}
-          </h3>
-
-          <div class="region">
-            ${escapeHtml(master["地域"] || "")}
-          </div>
-
-          <div class="status">
-            ${escapeHtml(
-              summary?.["総合判定"] ||
-              "最新判定なし"
-            )}
-          </div>
-
-          ${
-            summary?.["直近実釣果"]
-              ? `
-                <div class="detail">
-                  🎣 ${escapeHtml(
-                    summary["直近実釣果"]
-                  )}
-                </div>
-              `
-              : ""
-          }
-
-          ${renderOtherFish(summary)}
-
-          ${
-            latestCatch
-              ? `
-                <div class="detail">
-                  最新記録：
-                  ${escapeHtml(
-                    getDate(latestCatch)
-                  )}
-                  ${
-                    latestCatch["釣果本数"] !== ""
-                      ? ` / ${escapeHtml(
-                          latestCatch["釣果本数"]
-                        )}本`
-                      : ""
-                  }
-                </div>
-              `
-              : ""
-          }
-
-          <button
-            onclick='openAreaSearch(${JSON.stringify(
-              searchArea
-            )})'
-          >
-            このエリアの釣果を見る
-          </button>
-
-        </div>
-      `);
-    });
-
-  // ========================================
-  // ② ユーザー登録地点 🐟 🚗
-  // ========================================
-  mapPoints
-    .filter(point =>
-      isTrue(point["有効"])
-    )
-    .forEach(point => {
-      const lat =
-        Number(point["緯度"]);
-
-      const lng =
-        Number(point["経度"]);
-
-      if (!isHokkaidoLatLng(lat, lng)) {
-        console.warn(
-          "北海道外の登録地点を除外:",
-          point["地点名"],
-          lat,
-          lng
-        );
-        return;
-      }
-
-      const emoji =
-        normalizeField(point["アイコン"]) ||
-        "📍";
-
-      L.marker(
-        [lat, lng],
-        {
-          icon: makeEmojiIcon(emoji)
-        }
-      )
+      L.marker([lat, lng], { icon: makeDivIcon(color) })
         .addTo(salmonMap)
-        .bindPopup(
-          mapPointPopup(point)
-        );
+        .bindPopup(summaryPopup(master, summary, latestCatch));
     });
 
-  // ========================================
-  // ③ 公式河口規制 ⚠️
-  // ========================================
+  mapPoints
+    .filter(row => {
+      return (
+        isTrue(row["有効"]) &&
+        isHokkaidoLatLng(row["緯度"], row["経度"])
+      );
+    })
+    .forEach(point => {
+      const lat = Number(point["緯度"]);
+      const lng = Number(point["経度"]);
+      const type = normalizeField(point["種別"]);
+      let emoji = "📍";
+      if (type.includes("釣")) emoji = "🐟";
+      if (type.includes("駐")) emoji = "🚗";
+
+      L.marker([lat, lng], { icon: makeEmojiIcon(emoji) })
+        .addTo(salmonMap)
+        .bindPopup(mapPointPopup(point));
+    });
+
   regulations
     .filter(row => {
       return (
         isTrue(row["現在規制中"]) &&
-        normalizeField(
-          row["座標確認状態"]
-        ) === "検証済" &&
-        isHokkaidoLatLng(
-          row["緯度"],
-          row["経度"]
-        )
+        normalizeField(row["座標確認状態"]) === "検証済" &&
+        isHokkaidoLatLng(row["緯度"], row["経度"])
       );
     })
     .forEach(row => {
-      const lat =
-        Number(row["緯度"]);
+      const lat = Number(row["緯度"]);
+      const lng = Number(row["経度"]);
 
-      const lng =
-        Number(row["経度"]);
-
-      L.marker(
-        [lat, lng],
-        {
-          icon: makeEmojiIcon("⚠️")
-        }
-      )
+      L.marker([lat, lng], { icon: makeEmojiIcon("⚠️") })
         .addTo(salmonMap)
-        .bindPopup(
-          regulationPopup(row)
-        );
+        .bindPopup(regulationPopup(row));
     });
-
-  // fitBounds は使わない。
-  // データに異常座標が混入しても
-  // 世界地図までズームアウトしない。
 
   setTimeout(() => {
     salmonMap.invalidateSize();
-
-    // invalidateSize後にも北海道表示を保証
-    salmonMap.setView(
-      HOKKAIDO_CENTER,
-      HOKKAIDO_ZOOM,
-      {
-        animate: false
-      }
-    );
+    salmonMap.setView(HOKKAIDO_CENTER, HOKKAIDO_ZOOM, { animate: false });
   }, 100);
 
   mapRendered = true;
 }
 
-window.openAreaSearch =
-  function(region) {
-    const select =
-      document.getElementById("area");
+window.openAreaSearch = function(region) {
+  const select = document.getElementById("area");
 
-    if (select) {
-      const option =
-        [...select.options].find(
-          o =>
-            o.value === region ||
-            region.includes(o.value) ||
-            o.value.includes(region)
-        );
+  if (select) {
+    const option = [...select.options].find(
+      o => o.value === region || region.includes(o.value) || o.value.includes(region)
+    );
 
-      select.value =
-        option
-          ? option.value
-          : "all";
-    }
+    select.value = option ? option.value : "all";
+  }
 
-    document
-      .querySelectorAll(".page")
-      .forEach(x =>
-        x.classList.remove("active")
-      );
+  document.querySelectorAll(".page").forEach(x => x.classList.remove("active"));
+  document.getElementById("search")?.classList.add("active");
+  document.querySelectorAll("nav button").forEach(x =>
+    x.classList.toggle("active", x.dataset.page === "search")
+  );
 
-    document
-      .getElementById("search")
-      ?.classList.add("active");
-
-    document
-      .querySelectorAll("nav button")
-      .forEach(x =>
-        x.classList.toggle(
-          "active",
-          x.dataset.page === "search"
-        )
-      );
-
-    render();
-  };
+  render();
+};
 
 function setupEvents() {
   [
+    "fish",
     "area",
     "caught",
     "trust",
@@ -958,109 +706,59 @@ function setupEvents() {
     "dateTo",
     "sort"
   ].forEach(id => {
-    document
-      .getElementById(id)
-      ?.addEventListener(
-        "change",
-        render
-      );
+    document.getElementById(id)?.addEventListener("change", render);
   });
 
-  document
-    .getElementById("reset")
-    ?.addEventListener(
-      "click",
-      () => {
-        const area =
-          document.getElementById("area");
+  document.getElementById("reset")?.addEventListener("click", () => {
+    const fish = document.getElementById("fish");
+    const area = document.getElementById("area");
+    const caught = document.getElementById("caught");
+    const trust = document.getElementById("trust");
+    const time = document.getElementById("time");
+    const dateFrom = document.getElementById("dateFrom");
+    const dateTo = document.getElementById("dateTo");
+    const sort = document.getElementById("sort");
 
-        const caught =
-          document.getElementById("caught");
+    if (fish) fish.value = "all";
+    if (area) area.value = "all";
+    if (caught) caught.value = "all";
+    if (trust) trust.value = "all";
+    if (time) time.value = "all";
+    if (dateFrom) dateFrom.value = "";
+    if (dateTo) dateTo.value = "";
+    if (sort) sort.value = "new";
 
-        const trust =
-          document.getElementById("trust");
+    render();
+  });
 
-        const time =
-          document.getElementById("time");
+  document.querySelectorAll("nav button").forEach(button => {
+    button.addEventListener("click", () => {
+      const page = button.dataset.page;
 
-        const dateFrom =
-          document.getElementById("dateFrom");
-
-        const dateTo =
-          document.getElementById("dateTo");
-
-        const sort =
-          document.getElementById("sort");
-
-        if (area) area.value = "all";
-        if (caught) caught.value = "all";
-        if (trust) trust.value = "all";
-        if (time) time.value = "all";
-        if (dateFrom) dateFrom.value = "";
-        if (dateTo) dateTo.value = "";
-        if (sort) sort.value = "new";
-
-        render();
-      }
-    );
-
-  document
-    .querySelectorAll("nav button")
-    .forEach(button => {
-      button.addEventListener(
-        "click",
-        () => {
-          const page =
-            button.dataset.page;
-
-          document
-            .querySelectorAll(".page")
-            .forEach(x =>
-              x.classList.remove("active")
-            );
-
-          document
-            .getElementById(page)
-            ?.classList.add("active");
-
-          document
-            .querySelectorAll("nav button")
-            .forEach(x =>
-              x.classList.toggle(
-                "active",
-                x === button
-              )
-            );
-
-          if (page === "map") {
-            renderMap();
-
-            setTimeout(
-              () =>
-                salmonMap?.invalidateSize(),
-              150
-            );
-          }
-        }
+      document.querySelectorAll(".page").forEach(x => x.classList.remove("active"));
+      document.getElementById(page)?.classList.add("active");
+      document.querySelectorAll("nav button").forEach(x =>
+        x.classList.toggle("active", x === button)
       );
+
+      if (page === "map") {
+        renderMap();
+        setTimeout(() => salmonMap?.invalidateSize(), 150);
+      }
     });
+  });
 }
 
 async function load() {
   try {
-    const [
-      summaryData,
-      catchData,
-      areaData,
-      pointData,
-      regulationData
-    ] = await Promise.all([
-      getSheet("日次サマリー"),
-      getSheet("釣果・現地情報"),
-      getSheet("エリアマスタ"),
-      getSheet("マップ地点"),
-      getSheet("河口規制マスタ")
-    ]);
+    const [summaryData, catchData, areaData, pointData, regulationData] =
+      await Promise.all([
+        getSheet("日次サマリー"),
+        getSheet("釣果・現地情報"),
+        getSheet("エリアマスタ"),
+        getSheet("マップ地点"),
+        getSheet("河口規制マスタ")
+      ]);
 
     summaries = summaryData;
     catches = catchData;
@@ -1068,6 +766,7 @@ async function load() {
     mapPoints = pointData;
     regulations = regulationData;
 
+    setupFishSpecies();
     setupAreas();
     renderSummary();
     render();
@@ -1080,24 +779,15 @@ async function load() {
       `地点${mapPoints.length} / ` +
       `規制${regulations.length}`
     );
-
   } catch (error) {
     console.error(error);
 
-    const hero =
-      document.querySelector(
-        "#summary .hero"
-      );
-
+    const hero = document.querySelector("#summary .hero");
     if (hero) {
       hero.innerHTML = `
         <small>ERROR</small>
-        <h3>
-          Google Sheetの取得に失敗しました
-        </h3>
-        <p>
-          ${escapeHtml(error.message)}
-        </p>
+        <h3>Google Sheetの取得に失敗しました</h3>
+        <p>${escapeHtml(error.message)}</p>
       `;
     }
   }

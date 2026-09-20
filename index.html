@@ -1,13 +1,25 @@
 <!doctype html>
-
 <html lang="ja">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#0b1720">
-<title>北海道アキアジ情報DB</title>
-<link rel="stylesheet" href="style.css">
+  <meta charset="utf-8">
+
+  <meta
+    name="viewport"
+    content="width=device-width,initial-scale=1,viewport-fit=cover"
+  >
+
+  <meta name="theme-color" content="#0b1720">
+
+  <title>北海道アキアジ情報DB</title>
+
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  >
+
+  <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
 
 <header>
@@ -20,102 +32,136 @@
 
 <main>
 
-<section id="summary" class="page active">
-  <h2>今日の要約</h2>
-  <div class="hero">
-    <small>最新情報</small>
-    <h3>Google Sheetから取得中</h3>
-    <p>最新の日次情報を表示します。</p>
-  </div>
-  <div id="summaryCards"></div>
-</section>
+  <!-- 今日の要約 -->
+  <section id="summary" class="page active">
 
-<section id="search" class="page">
-  <h2>釣果検索</h2>
+    <h2>今日の要約</h2>
 
-  <div class="filters">
+    <div class="hero">
+      <small>Google Sheet接続中</small>
+      <h3>最新情報を取得しています…</h3>
+    </div>
 
-    <label>
-      エリア
-      <select id="area"></select>
-    </label>
+    <div id="summaryCards"></div>
 
-    <label>
-      釣果
-      <select id="caught">
-        <option value="all">すべて</option>
-        <option value="yes">釣果あり</option>
-        <option value="no">0本</option>
-      </select>
-    </label>
+  </section>
 
-    <label>
-      信頼度
-      <select id="trust">
-        <option value="all">すべて</option>
-        <option>A</option>
-        <option>B</option>
-        <option>C</option>
-      </select>
-    </label>
 
-    <label>
-      時間帯
-      <select id="time">
-        <option value="all">すべて</option>
-        <option>朝</option>
-        <option>昼</option>
-        <option>夕</option>
-        <option>夜</option>
-      </select>
-    </label>
+  <!-- 釣果検索 -->
+  <section id="search" class="page">
 
-    <label>
-      開始日
-      <input type="date" id="dateFrom">
-    </label>
+    <h2>釣果検索</h2>
 
-    <label>
-      終了日
-      <input type="date" id="dateTo">
-    </label>
+    <div class="filters">
 
-    <label>
-      並び順
-      <select id="sort">
-        <option value="new">新しい順</option>
-        <option value="old">古い順</option>
-        <option value="catch">釣果数順</option>
-        <option value="trust">信頼度順</option>
-      </select>
-    </label>
+      <label>
+        エリア
+        <select id="area"></select>
+      </label>
 
-  </div>
+      <label>
+        釣果
+        <select id="caught">
+          <option value="all">すべて</option>
+          <option value="yes">釣果あり</option>
+          <option value="no">0本</option>
+        </select>
+      </label>
 
-  <div class="bar">
-    <strong id="count"></strong>
-    <button id="reset">条件クリア</button>
-  </div>
+      <label>
+        信頼度
+        <select id="trust">
+          <option value="all">すべて</option>
+          <option value="A">A以上</option>
+          <option value="B">B以上</option>
+          <option value="C">C以上</option>
+        </select>
+      </label>
 
-  <div id="cards"></div>
-</section>
+      <label>
+        時間帯
+        <select id="time">
+          <option value="all">すべて</option>
+          <option value="朝">朝</option>
+          <option value="昼">昼</option>
+          <option value="夕">夕</option>
+          <option value="夜">夜</option>
+        </select>
+      </label>
 
-<section id="map" class="page">
-  <h2>マップ</h2>
-  <div class="empty">
-    🗺️ エリアマスタに緯度・経度を入れたら追加
-  </div>
-</section>
+      <label>
+        開始日
+        <input type="date" id="dateFrom">
+      </label>
 
-<section id="analysis" class="page">
-  <h2>過去分析</h2>
-  <div id="analysisBox" class="hero"></div>
-</section>
+      <label>
+        終了日
+        <input type="date" id="dateTo">
+      </label>
+
+      <label>
+        並び順
+        <select id="sort">
+          <option value="new">新しい順</option>
+          <option value="old">古い順</option>
+          <option value="catch">釣果数順</option>
+          <option value="trust">信頼度順</option>
+        </select>
+      </label>
+
+    </div>
+
+    <div class="bar">
+      <strong id="count">0件</strong>
+      <button id="reset">条件クリア</button>
+    </div>
+
+    <div id="cards"></div>
+
+  </section>
+
+
+  <!-- マップ -->
+  <section id="map" class="page">
+
+    <h2>アキアジ状況マップ</h2>
+
+    <div class="map-info">
+      ピンをタップすると、そのエリアの最新状況を確認できます。
+    </div>
+
+    <div id="salmonMap"></div>
+
+    <div class="map-legend">
+      <span>🟢 有望</span>
+      <span>🟡 監視・新報待ち</span>
+      <span>⚪ その他</span>
+    </div>
+
+  </section>
+
+
+  <!-- 過去分析 -->
+  <section id="analysis" class="page">
+
+    <h2>過去分析</h2>
+
+    <div id="analysisBox" class="hero">
+      <small>Google Sheet LIVE</small>
+      <h3>データ取得中…</h3>
+    </div>
+
+  </section>
 
 </main>
 
+
 <nav>
-  <button data-page="summary" class="active">
+
+  <button
+    data-page="summary"
+    class="active"
+  >
     ☀️
     <span>今日の要約</span>
   </button>
@@ -134,7 +180,13 @@
     📊
     <span>過去分析</span>
   </button>
+
 </nav>
+
+
+<script
+  src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+></script>
 
 <script src="app.js"></script>
 

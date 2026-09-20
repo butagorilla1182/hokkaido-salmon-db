@@ -4,12 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <meta name="theme-color" content="#0b1720">
-  <title>北海道アキアジ情報DB</title>
+  <title>HOKKAIDO FISHING DB</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <link rel="stylesheet" href="style.css?v=20260920-1515">
 </head>
 <body>
-<header><div><small>HOKKAIDO SALMON DB</small><h1>北海道アキアジ情報DB</h1></div><b>2026</b></header>
+<header><div><small>HOKKAIDO FISHING DB</small><h1>北海道釣果情報DB</h1></div><b>2026</b></header>
 <main>
   <section id="summary" class="page active"><h2>今日の要約</h2><div class="hero"><small>Google Sheet接続中</small><h3>最新情報を取得しています…</h3></div><div id="summaryCards"></div></section>
   <section id="search" class="page"><h2>釣果検索</h2><div class="filters">
@@ -18,7 +18,7 @@
     <div class="filter-row"><label>時間帯<select id="time"><option value="all">すべて</option><option value="朝">朝</option><option value="昼">昼</option><option value="夕">夕</option><option value="夜">夜</option></select></label><label>開始日<input type="text" id="dateFrom" class="date-filter" inputmode="numeric" placeholder="YYYY-MM-DD" maxlength="10"></label></div>
     <div class="filter-row"><label>終了日<input type="text" id="dateTo" class="date-filter" inputmode="numeric" placeholder="YYYY-MM-DD" maxlength="10"></label><label>並び順<select id="sort"><option value="new">新しい順</option><option value="old">古い順</option><option value="catch">釣果数順</option><option value="trust">信頼度順</option></select></label></div>
   </div><div class="bar"><strong id="count">0件</strong><button id="reset">条件クリア</button></div><div id="cards"></div></section>
-  <section id="map" class="page"><h2>アキアジ状況マップ</h2><div class="map-info">ピンをタップすると、そのエリアの最新状況を確認できます。</div><div id="salmonMap"></div><div class="map-legend"><span>🟢 有望</span><span>🟡 監視・新報待ち</span><span>⚪ その他</span></div></section>
+  <section id="map" class="page"><h2>北海道釣果マップ</h2><div class="map-info">ピンをタップすると、そのエリアの最新状況を確認できます。</div><div id="salmonMap"></div><div class="map-legend"><span>🟢 有望</span><span>🟡 監視・新報待ち</span><span>⚪ その他</span></div></section>
   <section id="analysis" class="page">
     <h2>過去分析</h2>
     <div id="analysisBox" style="display:none"></div>

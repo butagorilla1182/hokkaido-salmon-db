@@ -1,12 +1,10 @@
 const API =
-  "https://script.google.com/macros/s/AKfycbzUWA0w2_MzltOtgGSBStBZKHzTaHt41DF2-3nw9niiMTOSHQRjNkbz5nETV8j_Mw0_/exec";
-
-const $ = s => document.querySelector(s);
-const $$ = s => document.querySelectorAll(s);
+  'https://script.google.com/macros/s/AKfycbzUWA0w2_MzltOtgGSBStBZKHzTaHt41DF2-3nw9niiMTOSHQRjNkbz5nETV8j_Mw0_/exec';
 
 let summaryData = [];
 let catchData = [];
 let areaMaster = [];
+let mapPoints = [];
 
 let salmonMap = null;
 let mapLayer = null;
@@ -17,606 +15,938 @@ let mapLayer = null;
 ========================= */
 
 async function getSheet(sheet) {
+  const url = `${API}?sheet=${encodeURIComponent(sheet)}`;
 
-  const url =
-    API + "?sheet=" + encodeURIComponent(sheet);
+  const res = await fetch(url, {
+    cache: 'no-store'
+  });
 
-  const response = await fetch(url);
-
-  if (!response.ok) {
-    throw new Error(
-      `${sheet} の取得に失敗しました`
-    );
+  if (!res.ok) {
+    throw new Error(`API error: ${res.status}`);
   }
 
-  const json = await response.json();
+  const json = await res.json();
 
-  /*
-    Apps Script側が
-    配列を直接返す場合と
-    {data:[...]} で返す場合の両方に対応
-  */
-
-  if (Array.isArray(json)) {
-    return json;
+  if (!json.ok) {
+    throw new Error(json.error || 'API error');
   }
 
-  if (Array.isArray(json.data)) {
-    return json.data;
-  }
-
-  return [];
+  return json.data || [];
 }
 
 
 /* =========================
-   共通
+   COMMON
 ========================= */
 
 function normalizeField(obj, names) {
-
   for (const name of names) {
-
     if (
-      obj[name] !== undefined &&
-      obj[name] !== null &&
-      obj[name] !== ""
+      obj &&
+      Object.prototype.hasOwnProperty.call(obj, name) &&
+      obj[name] !== ''
     ) {
       return obj[name];
     }
-
   }
 
-  return "";
+  return '';
 }
 
 
 function escapeHtml(value) {
-
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
 }
 
 
 function getDate(row) {
-
-  return String(
-    normalizeField(
-      row,
-      ["実釣日", "確認日", "日付"]
-    )
-  ).slice(0, 10);
+  return normalizeField(
+    row,
+    ['実釣日', '確認日', '日付']
+  );
 }
 
 
 function getCatchCount(row) {
+  const value = normalizeField(
+    row,
+    ['釣果本数', '直近実釣果']
+  );
 
-  const value =
-    normalizeField(
-      row,
-      ["釣果本数", "釣果"]
-    );
+  const match = String(value).match(/\d+/);
 
-  if (
-    value === "" ||
-    value === null ||
-    value === undefined
-  ) {
-    return 0;
-  }
-
-  const match =
-    String(value).match(/\d+/);
-
-  return match
-    ? Number(match[0])
-    : 0;
+  return match ? Number(match[0]) : 0;
 }
 
 
 function trustScore(value) {
+  const trust = String(value || '').trim();
 
-  const t =
-    String(value || "")
-      .trim()
-      .toUpperCase();
-
-  if (t === "A") return 3;
-  if (t === "B") return 2;
-  if (t === "C") return 1;
+  if (trust === 'A') return 3;
+  if (trust === 'B') return 2;
+  if (trust === 'C') return 1;
 
   return 0;
 }
 
 
-/* =========================
-   エリア選択
-========================= */
+function isTrue(value) {
+  const v = String(value ?? '')
+    .trim()
+    .toLowerCase();
 
-function setupAreas() {
-
-  const select = $("#area");
-
-  const areas = [
-    ...new Set(
-      catchData
-        .map(x => x["エリア"])
-        .filter(Boolean)
-    )
-  ].sort();
-
-  select.innerHTML =
-    `<option value="all">すべて</option>` +
-    areas
-      .map(
-        x =>
-          `<option value="${escapeHtml(x)}">${escapeHtml(x)}</option>`
-      )
-      .join("");
+  return (
+    v === 'true' ||
+    v === '1' ||
+    v === 'yes' ||
+    v === '有効'
+  );
 }
 
 
 /* =========================
-   釣果検索
+   AREA SELECT
+========================= */
+
+function setupAreas() {
+  const area = document.getElementById('area');
+
+  if (!area) return;
+
+  const values = [
+    ...new Set(
+      catchData
+        .map(row =>
+          normalizeField(
+            row,
+            ['エリア', '地域']
+          )
+        )
+        .filter(Boolean)
+    )
+  ].sort();
+
+  area.innerHTML =
+    '<option value="all">すべて</option>' +
+    values
+      .map(value =>
+        `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`
+      )
+      .join('');
+}
+
+
+/* =========================
+   SEARCH
 ========================= */
 
 function render() {
+  const cards = document.getElementById('cards');
+  const count = document.getElementById('count');
 
-  let data = [...catchData];
+  if (!cards || !count) return;
 
-  const area = $("#area").value;
-  const caught = $("#caught").value;
-  const trust = $("#trust").value;
-  const time = $("#time").value;
-  const dateFrom = $("#dateFrom").value;
-  const dateTo = $("#dateTo").value;
-  const sort = $("#sort").value;
+  const areaValue =
+    document.getElementById('area')?.value || 'all';
+
+  const caughtValue =
+    document.getElementById('caught')?.value || 'all';
+
+  const trustValue =
+    document.getElementById('trust')?.value || 'all';
+
+  const timeValue =
+    document.getElementById('time')?.value || 'all';
+
+  const dateFrom =
+    document.getElementById('dateFrom')?.value || '';
+
+  const dateTo =
+    document.getElementById('dateTo')?.value || '';
+
+  const sortValue =
+    document.getElementById('sort')?.value || 'new';
 
 
-  if (area !== "all") {
+  let rows = [...catchData];
 
-    data = data.filter(
-      x => x["エリア"] === area
-    );
 
+  if (areaValue !== 'all') {
+    rows = rows.filter(row => {
+      const value = normalizeField(
+        row,
+        ['エリア', '地域']
+      );
+
+      return value === areaValue;
+    });
   }
 
 
-  if (caught === "yes") {
-
-    data = data.filter(
-      x => getCatchCount(x) > 0
+  if (caughtValue === 'yes') {
+    rows = rows.filter(
+      row => getCatchCount(row) > 0
     );
-
   }
 
 
-  if (caught === "no") {
-
-    data = data.filter(
-      x => getCatchCount(x) === 0
+  if (caughtValue === 'no') {
+    rows = rows.filter(
+      row => getCatchCount(row) === 0
     );
-
   }
 
 
-  if (trust !== "all") {
+  if (trustValue !== 'all') {
+    const minimum =
+      trustScore(trustValue);
 
-    data = data.filter(
-      x =>
-        trustScore(x["信頼度"]) >=
-        trustScore(trust)
-    );
+    rows = rows.filter(row => {
+      const trust =
+        normalizeField(
+          row,
+          ['信頼度']
+        );
 
+      return trustScore(trust) >= minimum;
+    });
   }
 
 
-  if (time !== "all") {
+  if (timeValue !== 'all') {
+    rows = rows.filter(row => {
+      const value = normalizeField(
+        row,
+        ['時間帯']
+      );
 
-    data = data.filter(
-      x =>
-        String(
-          x["時間帯"] || ""
-        ).includes(time)
-    );
-
+      return String(value).includes(timeValue);
+    });
   }
 
 
   if (dateFrom) {
+    rows = rows.filter(row => {
+      const date = getDate(row);
 
-    data = data.filter(
-      x =>
-        getDate(x) &&
-        getDate(x) >= dateFrom
-    );
-
+      return date && date >= dateFrom;
+    });
   }
 
 
   if (dateTo) {
+    rows = rows.filter(row => {
+      const date = getDate(row);
 
-    data = data.filter(
-      x =>
-        getDate(x) &&
-        getDate(x) <= dateTo
-    );
-
+      return date && date <= dateTo;
+    });
   }
 
 
-  if (sort === "new") {
+  rows.sort((a, b) => {
+    if (sortValue === 'old') {
+      return String(getDate(a))
+        .localeCompare(String(getDate(b)));
+    }
 
-    data.sort(
-      (a, b) =>
-        getDate(b).localeCompare(
-          getDate(a)
-        )
-    );
-
-  }
-
-
-  if (sort === "old") {
-
-    data.sort(
-      (a, b) =>
-        getDate(a).localeCompare(
-          getDate(b)
-        )
-    );
-
-  }
-
-
-  if (sort === "catch") {
-
-    data.sort(
-      (a, b) =>
+    if (sortValue === 'catch') {
+      return (
         getCatchCount(b) -
         getCatchCount(a)
-    );
+      );
+    }
 
-  }
+    if (sortValue === 'trust') {
+      return (
+        trustScore(
+          normalizeField(b, ['信頼度'])
+        ) -
+        trustScore(
+          normalizeField(a, ['信頼度'])
+        )
+      );
+    }
+
+    return String(getDate(b))
+      .localeCompare(String(getDate(a)));
+  });
 
 
-  if (sort === "trust") {
-
-    data.sort(
-      (a, b) =>
-        trustScore(b["信頼度"]) -
-        trustScore(a["信頼度"])
-    );
-
-  }
+  count.textContent = `${rows.length}件`;
 
 
-  $("#count").textContent =
-    `${data.length}件`;
-
-
-  if (!data.length) {
-
-    $("#cards").innerHTML =
-      `<div class="empty">
-        条件に一致する情報がありません
-      </div>`;
+  if (!rows.length) {
+    cards.innerHTML =
+      '<div class="empty">条件に一致する釣果情報がありません。</div>';
 
     return;
   }
 
 
-  $("#cards").innerHTML =
-    data.map(row => {
-
+  cards.innerHTML = rows
+    .map(row => {
       const area =
-        row["エリア"] || "地点未設定";
+        normalizeField(
+          row,
+          ['エリア', '地域']
+        ) || 'エリア不明';
 
-      const place =
-        row["具体地点"] || "";
+      const point =
+        normalizeField(
+          row,
+          ['具体地点']
+        );
 
       const date =
-        getDate(row);
+        getDate(row) || '日付不明';
 
       const time =
-        row["時間帯"] || "";
+        normalizeField(
+          row,
+          ['時間帯']
+        );
 
       const catches =
         normalizeField(
           row,
-          ["釣果本数", "釣果"]
+          ['釣果本数']
         );
 
       const trust =
-        row["信頼度"] || "-";
-
-      const source =
-        row["情報源"] || "";
+        normalizeField(
+          row,
+          ['信頼度']
+        );
 
       const method =
-        row["釣法"] || "";
+        normalizeField(
+          row,
+          ['釣法']
+        );
+
+      const lure =
+        normalizeField(
+          row,
+          ['ルアー・餌']
+        );
+
+      const source =
+        normalizeField(
+          row,
+          ['情報源']
+        );
 
       const memo =
-        row["メモ"] || "";
+        normalizeField(
+          row,
+          ['メモ']
+        );
+
 
       return `
         <article class="card">
 
           <div class="top">
+            <h3>${escapeHtml(area)}</h3>
 
-            <h3>
-              ${escapeHtml(area)}
-            </h3>
-
-            <span class="chip ${escapeHtml(trust)}">
-              信頼度${escapeHtml(trust)}
-            </span>
-
+            ${
+              trust
+                ? `<span class="chip ${escapeHtml(trust)}">信頼度 ${escapeHtml(trust)}</span>`
+                : ''
+            }
           </div>
 
           <div class="meta">
             ${escapeHtml(date)}
-            ${time ? "　" + escapeHtml(time) : ""}
+            ${time ? ` ・ ${escapeHtml(time)}` : ''}
           </div>
 
           ${
-            place
-              ? `<div class="meta">
-                   📍 ${escapeHtml(place)}
-                 </div>`
-              : ""
+            point
+              ? `<span class="chip">📍 ${escapeHtml(point)}</span>`
+              : ''
           }
 
-          <p>
-            <strong>
-              🎣 ${escapeHtml(catches || "0")}本
-            </strong>
-          </p>
+          ${
+            catches
+              ? `<span class="chip">🎣 ${escapeHtml(catches)}本</span>`
+              : ''
+          }
 
-          <div>
+          ${
+            method
+              ? `<span class="chip">${escapeHtml(method)}</span>`
+              : ''
+          }
 
-            ${
-              method
-                ? `<span class="chip">
-                     ${escapeHtml(method)}
-                   </span>`
-                : ""
-            }
+          ${
+            lure
+              ? `<p><b>ルアー・餌：</b>${escapeHtml(lure)}</p>`
+              : ''
+          }
 
-            ${
-              source
-                ? `<span class="chip">
-                     ${escapeHtml(source)}
-                   </span>`
-                : ""
-            }
-
-          </div>
+          ${
+            source
+              ? `<p><b>情報源：</b>${escapeHtml(source)}</p>`
+              : ''
+          }
 
           ${
             memo
-              ? `<p class="meta">
-                   ${escapeHtml(memo)}
-                 </p>`
-              : ""
+              ? `<p>${escapeHtml(memo)}</p>`
+              : ''
           }
 
         </article>
       `;
-
-    }).join("");
+    })
+    .join('');
 }
 
 
 /* =========================
-   今日の要約
+   SUMMARY
 ========================= */
 
 function renderSummary() {
+  const box =
+    document.getElementById('summaryCards');
+
+  if (!box) return;
+
 
   if (!summaryData.length) {
-
-    $("#summaryCards").innerHTML =
-      `<div class="empty">
-        日次サマリーがありません
-      </div>`;
+    box.innerHTML =
+      '<div class="empty">日次サマリーがありません。</div>';
 
     return;
   }
 
 
-  const dates =
-    summaryData
-      .map(x =>
-        String(x["日付"] || "")
-          .slice(0, 10)
-      )
-      .filter(Boolean);
+  const dates = summaryData
+    .map(row =>
+      normalizeField(row, ['日付'])
+    )
+    .filter(Boolean)
+    .sort();
 
 
   const latestDate =
-    dates.sort().at(-1);
+    dates[dates.length - 1];
 
 
-  const latest =
-    summaryData
-      .filter(
-        x =>
-          String(
-            x["日付"] || ""
-          ).slice(0, 10)
-          === latestDate
+  let rows = summaryData.filter(
+    row =>
+      normalizeField(
+        row,
+        ['日付']
+      ) === latestDate
+  );
+
+
+  rows.sort(
+    (a, b) =>
+      Number(
+        normalizeField(a, ['順位']) || 999
+      ) -
+      Number(
+        normalizeField(b, ['順位']) || 999
       )
-      .sort(
-        (a, b) =>
-          Number(a["順位"] || 999) -
-          Number(b["順位"] || 999)
-      );
-
-
-  if (!latest.length) return;
-
-
-  const top = latest[0];
+  );
 
 
   const hero =
-    $("#summary .hero");
+    document.querySelector(
+      '#summary .hero'
+    );
 
 
-  hero.innerHTML = `
-
-    <small>
-      DB最新日 ${escapeHtml(latestDate)}
-    </small>
-
-    <h3>
-      ${escapeHtml(top["エリア"] || "")}
-    </h3>
-
-    <p>
-      <strong>
-        ${escapeHtml(top["総合判定"] || "")}
-      </strong>
-    </p>
-
-    <p>
-      ${escapeHtml(
-        top["狙い目・注意"] ||
-        top["主要根拠"] ||
-        ""
-      )}
-    </p>
-
-  `;
+  if (hero) {
+    hero.innerHTML = `
+      <small>最新更新日</small>
+      <h3>${escapeHtml(latestDate || '---')}</h3>
+      <div>${rows.length}エリアを表示中</div>
+    `;
+  }
 
 
-  $("#summaryCards").innerHTML =
-    latest.map(row => `
+  box.innerHTML = rows
+    .map(row => {
+      const rank =
+        normalizeField(
+          row,
+          ['順位']
+        );
 
-      <article class="card">
+      const area =
+        normalizeField(
+          row,
+          ['エリア']
+        );
 
-        <div class="top">
+      const status =
+        normalizeField(
+          row,
+          ['総合判定']
+        );
 
-          <h3>
-            ${escapeHtml(
-              row["順位"] || "-"
-            )}位　
-            ${escapeHtml(
-              row["エリア"] || ""
-            )}
-          </h3>
+      const catchInfo =
+        normalizeField(
+          row,
+          ['直近実釣果']
+        );
 
-        </div>
+      const temp =
+        normalizeField(
+          row,
+          ['海水温']
+        );
 
-        <p>
-          <strong>
-            ${escapeHtml(
-              row["総合判定"] || ""
-            )}
-          </strong>
-        </p>
+      const condition =
+        normalizeField(
+          row,
+          ['風・波・濁り']
+        );
 
-        ${
-          row["海水温"]
-            ? `<span class="chip">
-                 🌊 ${escapeHtml(row["海水温"])}
-               </span>`
-            : ""
-        }
+      const target =
+        normalizeField(
+          row,
+          ['狙い目・注意']
+        );
 
-        ${
-          row["前日比"]
-            ? `<span class="chip">
-                 ${escapeHtml(row["前日比"])}
-               </span>`
-            : ""
-        }
+      const source =
+        normalizeField(
+          row,
+          ['主要根拠']
+        );
 
-        ${
-          row["直近実釣果"]
-            ? `<p class="meta">
-                 🎣 ${escapeHtml(row["直近実釣果"])}
-               </p>`
-            : ""
-        }
 
-        ${
-          row["狙い目・注意"]
-            ? `<p class="meta">
-                 ${escapeHtml(row["狙い目・注意"])}
-               </p>`
-            : ""
-        }
+      return `
+        <article class="card">
 
-      </article>
+          <div class="top">
+            <h3>
+              ${rank ? `${escapeHtml(rank)}位 ` : ''}
+              ${escapeHtml(area)}
+            </h3>
+          </div>
 
-    `).join("");
+          ${
+            status
+              ? `<p><b>${escapeHtml(status)}</b></p>`
+              : ''
+          }
+
+          ${
+            catchInfo
+              ? `<p><b>直近：</b>${escapeHtml(catchInfo)}</p>`
+              : ''
+          }
+
+          ${
+            temp
+              ? `<span class="chip">🌡️ ${escapeHtml(temp)}</span>`
+              : ''
+          }
+
+          ${
+            condition
+              ? `<p><b>海況：</b>${escapeHtml(condition)}</p>`
+              : ''
+          }
+
+          ${
+            target
+              ? `<p><b>狙い目：</b>${escapeHtml(target)}</p>`
+              : ''
+          }
+
+          ${
+            source
+              ? `<p class="meta">根拠：${escapeHtml(source)}</p>`
+              : ''
+          }
+
+        </article>
+      `;
+    })
+    .join('');
 }
 
 
 /* =========================
-   過去分析
+   ANALYSIS
 ========================= */
 
 function renderAnalysis() {
+  const box =
+    document.getElementById('analysisBox');
 
-  if (!catchData.length) {
-
-    $("#analysisBox").innerHTML =
-      `<h3>データがありません</h3>`;
-
-    return;
-  }
+  if (!box) return;
 
 
   const total =
     catchData.length;
 
-  const catches =
-    catchData.filter(
-      x => getCatchCount(x) > 0
-    ).length;
 
-  const aCount =
+  const caught =
     catchData.filter(
-      x =>
-        String(
-          x["信頼度"] || ""
-        ).toUpperCase() === "A"
+      row => getCatchCount(row) > 0
     ).length;
 
 
-  $("#analysisBox").innerHTML = `
+  const trustA =
+    catchData.filter(
+      row =>
+        normalizeField(
+          row,
+          ['信頼度']
+        ) === 'A'
+    ).length;
 
-    <small>
-      DATABASE
-    </small>
 
-    <h3>
-      ${total}件の現地・釣果情報
-    </h3>
+  const areas =
+    new Set(
+      catchData
+        .map(row =>
+          normalizeField(
+            row,
+            ['エリア']
+          )
+        )
+        .filter(Boolean)
+    ).size;
 
-    <p>
-      釣果確認あり：
-      <strong>${catches}件</strong>
-    </p>
 
-    <p>
-      信頼度A：
-      <strong>${aCount}件</strong>
-    </p>
+  box.innerHTML = `
+    <small>Google Sheet LIVE</small>
+    <h3>${total}件の現地・釣果データ</h3>
+    <p>釣果あり：${caught}件</p>
+    <p>信頼度A：${trustA}件</p>
+    <p>記録エリア：${areas}エリア</p>
+  `;
+}
 
-    <p>
-      今後ここに、
-      エリア別・月別・時間帯別の
-      傾向分析を追加できます。
-    </p>
 
+/* =========================
+   MAP SUMMARY HELPERS
+========================= */
+
+function getLatestSummary() {
+  if (!summaryData.length) {
+    return [];
+  }
+
+  const dates = summaryData
+    .map(row =>
+      normalizeField(
+        row,
+        ['日付']
+      )
+    )
+    .filter(Boolean)
+    .sort();
+
+  const latest =
+    dates[dates.length - 1];
+
+  return summaryData.filter(
+    row =>
+      normalizeField(
+        row,
+        ['日付']
+      ) === latest
+  );
+}
+
+
+function findSummaryForArea(master) {
+  const latest =
+    getLatestSummary();
+
+  const code =
+    normalizeField(
+      master,
+      ['エリアコード']
+    );
+
+  const region =
+    normalizeField(
+      master,
+      ['地域']
+    );
+
+  const name =
+    normalizeField(
+      master,
+      ['表示名']
+    );
+
+
+  return latest.find(row => {
+    const rowCode =
+      normalizeField(
+        row,
+        ['エリアコード']
+      );
+
+    const rowArea =
+      normalizeField(
+        row,
+        ['エリア']
+      );
+
+    return (
+      (code && rowCode === code) ||
+      (region && rowArea === region) ||
+      (name && rowArea === name)
+    );
+  });
+}
+
+
+function findLatestCatch(master) {
+  const code =
+    normalizeField(
+      master,
+      ['エリアコード']
+    );
+
+  const region =
+    normalizeField(
+      master,
+      ['地域']
+    );
+
+  const rows = catchData
+    .filter(row => {
+      const rowCode =
+        normalizeField(
+          row,
+          ['エリアコード']
+        );
+
+      const rowArea =
+        normalizeField(
+          row,
+          ['エリア']
+        );
+
+      return (
+        (code && rowCode === code) ||
+        (region && rowArea === region)
+      );
+    })
+    .sort(
+      (a, b) =>
+        String(getDate(b))
+          .localeCompare(
+            String(getDate(a))
+          )
+    );
+
+  return rows[0] || null;
+}
+
+
+function markerColor(summary) {
+  const status =
+    normalizeField(
+      summary || {},
+      ['総合判定']
+    );
+
+  if (
+    String(status).includes('有望') ||
+    String(status).includes('好調')
+  ) {
+    return '#20a45b';
+  }
+
+  if (
+    String(status).includes('監視') ||
+    String(status).includes('新報待ち') ||
+    String(status).includes('魚は確認')
+  ) {
+    return '#e3a51a';
+  }
+
+  return '#89979e';
+}
+
+
+/* =========================
+   MAP POINT ICON
+========================= */
+
+function pointIcon(point) {
+  const type =
+    normalizeField(
+      point,
+      ['種別']
+    );
+
+  let emoji =
+    normalizeField(
+      point,
+      ['アイコン']
+    );
+
+
+  if (!emoji) {
+    if (type === '駐車場') {
+      emoji = '🚗';
+    } else if (type === '注意地点') {
+      emoji = '⚠️';
+    } else {
+      emoji = '🐟';
+    }
+  }
+
+
+  let className =
+    'map-point-fish';
+
+  if (type === '駐車場') {
+    className =
+      'map-point-car';
+  }
+
+  if (type === '注意地点') {
+    className =
+      'map-point-warning';
+  }
+
+
+  return L.divIcon({
+    className: '',
+    html: `
+      <div
+        class="map-point-icon ${className}"
+        style="
+          width:38px;
+          height:38px;
+          border-radius:50%;
+          display:flex;
+          align-items:center;
+          justify-content:center;
+          background:white;
+          border:3px solid ${
+            type === '注意地点'
+              ? '#e53935'
+              : type === '駐車場'
+                ? '#2878d0'
+                : '#16a36a'
+          };
+          box-shadow:0 2px 8px rgba(0,0,0,.28);
+          font-size:21px;
+        "
+      >
+        ${escapeHtml(emoji)}
+      </div>
+    `,
+    iconSize: [38, 38],
+    iconAnchor: [19, 19],
+    popupAnchor: [0, -21]
+  });
+}
+
+
+/* =========================
+   MAP POINT POPUP
+========================= */
+
+function mapPointPopup(point) {
+  const name =
+    normalizeField(
+      point,
+      ['地点名']
+    ) || '地点';
+
+  const type =
+    normalizeField(
+      point,
+      ['種別']
+    );
+
+  const memo =
+    normalizeField(
+      point,
+      ['注意・メモ']
+    );
+
+  const source =
+    normalizeField(
+      point,
+      ['情報元']
+    );
+
+
+  if (type === '注意地点') {
+    return `
+      <div class="map-popup">
+
+        <h3>⚠️ ${escapeHtml(name)}</h3>
+
+        <div class="status">
+          🚫 サケ・マス採捕禁止
+        </div>
+
+        <div class="detail">
+          📅 9月1日〜12月10日
+        </div>
+
+        <div class="detail">
+          📏 左岸500m・右岸500m・沖合500m
+        </div>
+
+        ${
+          memo
+            ? `<div class="detail">⚠️ ${escapeHtml(memo)}</div>`
+            : ''
+        }
+
+        ${
+          source
+            ? `<div class="meta">情報：${escapeHtml(source)}</div>`
+            : ''
+        }
+
+      </div>
+    `;
+  }
+
+
+  return `
+    <div class="map-popup">
+
+      <h3>
+        ${type === '駐車場' ? '🚗' : '🐟'}
+        ${escapeHtml(name)}
+      </h3>
+
+      <div class="status">
+        ${escapeHtml(type || '地点')}
+      </div>
+
+      ${
+        memo
+          ? `<div class="detail">${escapeHtml(memo)}</div>`
+          : ''
+      }
+
+      ${
+        source
+          ? `<div class="meta">情報：${escapeHtml(source)}</div>`
+          : ''
+      }
+
+    </div>
   `;
 }
 
@@ -625,405 +955,296 @@ function renderAnalysis() {
    MAP
 ========================= */
 
-function getLatestSummary() {
-
-  if (!summaryData.length) {
-    return [];
-  }
-
-  const latestDate =
-    summaryData
-      .map(x =>
-        String(
-          x["日付"] || ""
-        ).slice(0, 10)
-      )
-      .filter(Boolean)
-      .sort()
-      .at(-1);
-
-
-  return summaryData.filter(
-    x =>
-      String(
-        x["日付"] || ""
-      ).slice(0, 10)
-      === latestDate
-  );
-}
-
-
-function findSummaryForArea(master) {
-
-  const latest =
-    getLatestSummary();
-
-  /*
-    まずエリアコードで探す
-  */
-
-  let row =
-    latest.find(
-      x =>
-        String(
-          x["エリアコード"] || ""
-        ).trim()
-        ===
-        String(
-          master["エリアコード"] || ""
-        ).trim()
-    );
-
-
-  if (row) return row;
-
-
-  /*
-    樽前川・別々川など
-    日次サマリーでは
-    「苫小牧・白老」にまとめている場合
-  */
-
-  row =
-    latest.find(
-      x =>
-        String(
-          x["エリア"] || ""
-        ).trim()
-        ===
-        String(
-          master["地域"] || ""
-        ).trim()
-    );
-
-
-  return row || null;
-}
-
-
-function findLatestCatch(master) {
-
-  const code =
-    String(
-      master["エリアコード"] || ""
-    ).trim();
-
-  const region =
-    String(
-      master["地域"] || ""
-    ).trim();
-
-
-  let rows =
-    catchData.filter(
-      x =>
-        String(
-          x["エリアコード"] || ""
-        ).trim()
-        === code
-    );
-
-
-  /*
-    個別地点データがない場合は
-    地域単位の最新情報を使う
-  */
-
-  if (!rows.length) {
-
-    rows =
-      catchData.filter(
-        x =>
-          String(
-            x["エリア"] || ""
-          ).trim()
-          === region
-      );
-
-  }
-
-
-  rows.sort(
-    (a, b) =>
-      getDate(b).localeCompare(
-        getDate(a)
-      )
-  );
-
-
-  return rows[0] || null;
-}
-
-
-function markerColor(summary) {
-
-  if (!summary) {
-    return "#71808a";
-  }
-
-
-  const status =
-    String(
-      summary["総合判定"] || ""
-    );
-
-
-  if (
-    status.includes("有望") ||
-    status.includes("好調")
-  ) {
-    return "#19a463";
-  }
-
-
-  if (
-    status.includes("監視") ||
-    status.includes("新報待ち") ||
-    status.includes("魚は確認")
-  ) {
-    return "#e5a91c";
-  }
-
-
-  return "#71808a";
-}
-
-
 function renderMap() {
+  const element =
+    document.getElementById(
+      'salmonMap'
+    );
 
-  if (
-    typeof L === "undefined"
-  ) {
-    return;
-  }
+  if (!element) return;
 
 
   if (!salmonMap) {
-
-    salmonMap =
-      L.map(
-        "salmonMap",
-        {
-          zoomControl:true
-        }
-      ).setView(
-        [42.65, 141.45],
-        7
-      );
+    salmonMap = L.map(
+      'salmonMap',
+      {
+        zoomControl: true
+      }
+    ).setView(
+      [42.65, 141.45],
+      7
+    );
 
 
     L.tileLayer(
-      "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+      'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
       {
-        maxZoom:18,
+        maxZoom: 18,
         attribution:
-          "&copy; OpenStreetMap contributors"
+          '&copy; OpenStreetMap'
       }
     ).addTo(salmonMap);
+  }
 
 
+  if (mapLayer) {
+    mapLayer.clearLayers();
+  } else {
     mapLayer =
       L.layerGroup()
         .addTo(salmonMap);
   }
 
 
-  mapLayer.clearLayers();
-
-
   const bounds = [];
 
 
-  areaMaster.forEach(master => {
+  /* -------------------------
+     エリア代表ピン
+  ------------------------- */
 
-    const tracking =
-      String(
-        master["追跡対象"] || ""
-      ).toUpperCase();
+  areaMaster
+    .filter(row =>
+      isTrue(
+        normalizeField(
+          row,
+          ['追跡対象']
+        )
+      )
+    )
+    .forEach(master => {
+      const lat =
+        Number(
+          normalizeField(
+            master,
+            ['緯度']
+          )
+        );
 
-
-    if (
-      tracking !== "TRUE" &&
-      tracking !== "1"
-    ) {
-      return;
-    }
-
-
-    const lat =
-      Number(master["緯度"]);
-
-    const lng =
-      Number(master["経度"]);
-
-
-    if (
-      !Number.isFinite(lat) ||
-      !Number.isFinite(lng) ||
-      lat === 0 ||
-      lng === 0
-    ) {
-      return;
-    }
+      const lng =
+        Number(
+          normalizeField(
+            master,
+            ['経度']
+          )
+        );
 
 
-    const summary =
-      findSummaryForArea(master);
-
-    const latestCatch =
-      findLatestCatch(master);
-
-    const color =
-      markerColor(summary);
+      if (
+        !Number.isFinite(lat) ||
+        !Number.isFinite(lng)
+      ) {
+        return;
+      }
 
 
-    const marker =
-      L.circleMarker(
-        [lat, lng],
-        {
-          radius:10,
-          color:"#ffffff",
-          weight:2,
-          fillColor:color,
-          fillOpacity:0.95
-        }
+      const name =
+        normalizeField(
+          master,
+          ['表示名']
+        );
+
+      const region =
+        normalizeField(
+          master,
+          ['地域']
+        );
+
+      const summary =
+        findSummaryForArea(master);
+
+      const latestCatch =
+        findLatestCatch(master);
+
+
+      const status =
+        normalizeField(
+          summary || {},
+          ['総合判定']
+        ) || '最新判定なし';
+
+      const date =
+        normalizeField(
+          summary || {},
+          ['日付']
+        );
+
+      const temp =
+        normalizeField(
+          summary || {},
+          ['海水温']
+        );
+
+      const source =
+        normalizeField(
+          summary || {},
+          ['主要根拠']
+        );
+
+
+      const catchDate =
+        latestCatch
+          ? getDate(latestCatch)
+          : '';
+
+      const catchCount =
+        latestCatch
+          ? normalizeField(
+              latestCatch,
+              ['釣果本数']
+            )
+          : '';
+
+
+      const marker =
+        L.circleMarker(
+          [lat, lng],
+          {
+            radius: 9,
+            color: '#ffffff',
+            weight: 2,
+            fillColor:
+              markerColor(summary),
+            fillOpacity: 1
+          }
+        );
+
+
+      marker.bindPopup(`
+        <div class="map-popup">
+
+          <h3>${escapeHtml(name)}</h3>
+
+          <div class="region">
+            ${escapeHtml(region)}
+          </div>
+
+          <div class="status">
+            ${escapeHtml(status)}
+          </div>
+
+          ${
+            date
+              ? `<div class="detail">📅 ${escapeHtml(date)}</div>`
+              : ''
+          }
+
+          ${
+            temp
+              ? `<div class="detail">🌡️ ${escapeHtml(temp)}</div>`
+              : ''
+          }
+
+          ${
+            catchDate
+              ? `
+                <div class="detail">
+                  🎣 最新釣果：
+                  ${escapeHtml(catchDate)}
+                  ${catchCount ? ` / ${escapeHtml(catchCount)}本` : ''}
+                </div>
+              `
+              : ''
+          }
+
+          ${
+            source
+              ? `<div class="detail">根拠：${escapeHtml(source)}</div>`
+              : ''
+          }
+
+          <button
+            onclick="openAreaSearch('${escapeHtml(region)}')"
+          >
+            このエリアの釣果を見る
+          </button>
+
+        </div>
+      `);
+
+
+      marker.addTo(mapLayer);
+
+      bounds.push(
+        [lat, lng]
+      );
+    });
+
+
+  /* -------------------------
+     釣り場・駐車場・規制地点
+  ------------------------- */
+
+  mapPoints
+    .filter(point =>
+      isTrue(
+        normalizeField(
+          point,
+          ['有効']
+        )
+      )
+    )
+    .forEach(point => {
+      const lat =
+        Number(
+          normalizeField(
+            point,
+            ['緯度']
+          )
+        );
+
+      const lng =
+        Number(
+          normalizeField(
+            point,
+            ['経度']
+          )
+        );
+
+
+      if (
+        !Number.isFinite(lat) ||
+        !Number.isFinite(lng)
+      ) {
+        return;
+      }
+
+
+      const marker =
+        L.marker(
+          [lat, lng],
+          {
+            icon:
+              pointIcon(point),
+            zIndexOffset: 500
+          }
+        );
+
+
+      marker.bindPopup(
+        mapPointPopup(point)
       );
 
 
-    const name =
-      master["表示名"] || "";
-
-    const region =
-      master["地域"] || "";
-
-    const status =
-      summary
-        ? summary["総合判定"]
-        : "最新判定なし";
-
-    const sea =
-      summary
-        ? summary["海水温"]
-        : "";
-
-    const summaryDate =
-      summary
-        ? String(
-            summary["日付"] || ""
-          ).slice(0, 10)
-        : "";
-
-    const catchDate =
-      latestCatch
-        ? getDate(latestCatch)
-        : "";
-
-    const catchCount =
-      latestCatch
-        ? normalizeField(
-            latestCatch,
-            ["釣果本数", "釣果"]
-          )
-        : "";
-
-    const source =
-      latestCatch
-        ? latestCatch["情報源"] || ""
-        : "";
+      marker.addTo(
+        mapLayer
+      );
 
 
-    const popup = `
-
-      <div class="map-popup">
-
-        <h3>
-          ${escapeHtml(name)}
-        </h3>
-
-        <div class="region">
-          ${escapeHtml(region)}
-        </div>
-
-        <div class="status">
-          ${escapeHtml(status)}
-        </div>
-
-        ${
-          summaryDate
-            ? `<div class="detail">
-                 📅 最新更新：
-                 ${escapeHtml(summaryDate)}
-               </div>`
-            : ""
-        }
-
-        ${
-          sea
-            ? `<div class="detail">
-                 🌊 海水温：
-                 ${escapeHtml(sea)}
-               </div>`
-            : ""
-        }
-
-        ${
-          latestCatch
-            ? `<div class="detail">
-                 🎣 最新釣果：
-                 ${escapeHtml(catchDate)}
-                 ${
-                   catchCount !== ""
-                     ? " / " +
-                       escapeHtml(catchCount) +
-                       "本"
-                     : ""
-                 }
-               </div>`
-            : `<div class="detail">
-                 🎣 最新釣果：新報待ち
-               </div>`
-        }
-
-        ${
-          source
-            ? `<div class="detail">
-                 🔎 ${escapeHtml(source)}
-               </div>`
-            : ""
-        }
-
-        <button
-          onclick="openAreaSearch('${escapeHtml(region)}')"
-        >
-          このエリアの釣果を見る
-        </button>
-
-      </div>
-    `;
-
-
-    marker
-      .bindPopup(popup)
-      .addTo(mapLayer);
-
-
-    bounds.push(
-      [lat, lng]
-    );
-
-  });
+      bounds.push(
+        [lat, lng]
+      );
+    });
 
 
   if (bounds.length) {
-
     salmonMap.fitBounds(
       bounds,
       {
-        padding:[25,25],
-        maxZoom:8
+        padding: [25, 25],
+        maxZoom: 8
       }
     );
-
   }
 
 
@@ -1036,123 +1257,147 @@ function renderMap() {
 
 
 /* =========================
-   MAP → 釣果検索
+   OPEN SEARCH FROM MAP
 ========================= */
 
 window.openAreaSearch =
-function(region) {
-
-  $$(".page").forEach(
-    x =>
-      x.classList.remove("active")
-  );
-
-  $("#search")
-    .classList.add("active");
-
-
-  $$("nav button").forEach(
-    x =>
-      x.classList.remove("active")
-  );
+  function(region) {
+    document
+      .querySelectorAll('.page')
+      .forEach(page =>
+        page.classList.remove(
+          'active'
+        )
+      );
 
 
-  const button =
-    document.querySelector(
-      'nav button[data-page="search"]'
-    );
-
-  if (button) {
-    button.classList.add("active");
-  }
+    document
+      .getElementById('search')
+      ?.classList.add(
+        'active'
+      );
 
 
-  const select =
-    $("#area");
+    document
+      .querySelectorAll(
+        'nav button'
+      )
+      .forEach(button =>
+        button.classList.remove(
+          'active'
+        )
+      );
 
 
-  const option =
-    [...select.options].find(
-      x =>
-        x.value === region
-    );
+    document
+      .querySelector(
+        'nav button[data-page="search"]'
+      )
+      ?.classList.add(
+        'active'
+      );
 
 
-  if (option) {
-
-    select.value =
-      region;
-
-  } else {
-
-    select.value =
-      "all";
-
-  }
+    const area =
+      document.getElementById(
+        'area'
+      );
 
 
-  render();
+    if (area) {
+      area.value = region;
 
+      if (
+        area.value !== region
+      ) {
+        const option =
+          [...area.options]
+            .find(
+              item =>
+                item.textContent ===
+                region
+            );
 
-  window.scrollTo(
-    {
-      top:0,
-      behavior:"smooth"
+        if (option) {
+          area.value =
+            option.value;
+        }
+      }
     }
-  );
-};
+
+
+    render();
+  };
 
 
 /* =========================
    NAV
 ========================= */
 
-$$("nav button").forEach(button => {
-
-  button.addEventListener(
-    "click",
-    () => {
-
-      const page =
-        button.dataset.page;
-
-
-      $$(".page").forEach(
-        x =>
-          x.classList.remove("active")
-      );
+document
+  .querySelectorAll(
+    'nav button'
+  )
+  .forEach(button => {
+    button.addEventListener(
+      'click',
+      () => {
+        const pageName =
+          button.dataset.page;
 
 
-      $("#" + page)
-        .classList.add("active");
+        document
+          .querySelectorAll(
+            '.page'
+          )
+          .forEach(page =>
+            page.classList.remove(
+              'active'
+            )
+          );
 
 
-      $$("nav button").forEach(
-        x =>
-          x.classList.remove("active")
-      );
+        document
+          .getElementById(
+            pageName
+          )
+          ?.classList.add(
+            'active'
+          );
 
 
-      button.classList.add("active");
+        document
+          .querySelectorAll(
+            'nav button'
+          )
+          .forEach(item =>
+            item.classList.remove(
+              'active'
+            )
+          );
 
 
-      if (page === "map") {
-
-        renderMap();
-
-        setTimeout(
-          () =>
-            salmonMap &&
-            salmonMap.invalidateSize(),
-          200
+        button.classList.add(
+          'active'
         );
 
+
+        if (
+          pageName === 'map'
+        ) {
+          setTimeout(
+            () => {
+              renderMap();
+
+              salmonMap
+                ?.invalidateSize();
+            },
+            100
+          );
+        }
       }
-
-    }
-  );
-
-});
+    );
+  });
 
 
 /* =========================
@@ -1160,57 +1405,57 @@ $$("nav button").forEach(button => {
 ========================= */
 
 [
-  "#area",
-  "#caught",
-  "#trust",
-  "#time",
-  "#sort"
-].forEach(selector => {
-
-  $(selector)
-    .addEventListener(
-      "change",
+  'area',
+  'caught',
+  'trust',
+  'time',
+  'dateFrom',
+  'dateTo',
+  'sort'
+].forEach(id => {
+  document
+    .getElementById(id)
+    ?.addEventListener(
+      'change',
       render
     );
-
 });
 
 
-$("#dateFrom")
-  .addEventListener(
-    "change",
-    render
-  );
-
-
-$("#dateTo")
-  .addEventListener(
-    "change",
-    render
-  );
-
-
-$("#reset")
-  .addEventListener(
-    "click",
+document
+  .getElementById('reset')
+  ?.addEventListener(
+    'click',
     () => {
+      document.getElementById(
+        'area'
+      ).value = 'all';
 
-      document
-        .querySelectorAll(
-          "#search select"
-        )
-        .forEach(
-          x =>
-            x.selectedIndex = 0
-        );
+      document.getElementById(
+        'caught'
+      ).value = 'all';
 
+      document.getElementById(
+        'trust'
+      ).value = 'all';
 
-      $("#dateFrom").value = "";
-      $("#dateTo").value = "";
+      document.getElementById(
+        'time'
+      ).value = 'all';
 
+      document.getElementById(
+        'dateFrom'
+      ).value = '';
+
+      document.getElementById(
+        'dateTo'
+      ).value = '';
+
+      document.getElementById(
+        'sort'
+      ).value = 'new';
 
       render();
-
     }
   );
 
@@ -1220,76 +1465,69 @@ $("#reset")
 ========================= */
 
 async function load() {
-
   try {
-
     const [
       summary,
       catches,
-      master
+      master,
+      points
     ] =
       await Promise.all([
-
         getSheet(
-          "日次サマリー"
+          '日次サマリー'
         ),
 
         getSheet(
-          "釣果・現地情報"
+          '釣果・現地情報'
         ),
 
         getSheet(
-          "エリアマスタ"
+          'エリアマスタ'
+        ),
+
+        getSheet(
+          'マップ地点'
         )
-
       ]);
 
 
     summaryData =
-      summary;
+      summary || [];
 
     catchData =
-      catches;
+      catches || [];
 
     areaMaster =
-      master;
+      master || [];
+
+    mapPoints =
+      points || [];
 
 
     setupAreas();
 
-    renderSummary();
-
     render();
+
+    renderSummary();
 
     renderAnalysis();
 
+    renderMap();
 
   } catch (error) {
-
     console.error(error);
 
 
-    $("#summary .hero")
-      .innerHTML = `
+    const summaryBox =
+      document.getElementById(
+        'summaryCards'
+      );
 
-        <small>
-          ERROR
-        </small>
-
-        <h3>
-          データを取得できませんでした
-        </h3>
-
-        <p>
-          ${escapeHtml(
-            error.message
-          )}
-        </p>
-
-      `;
-
+    if (summaryBox) {
+      summaryBox.innerHTML =
+        `<div class="empty">データ取得エラー：${escapeHtml(error.message)}</div>`;
+    }
   }
-
 }
 
 

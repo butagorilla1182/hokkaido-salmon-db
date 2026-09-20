@@ -17,7 +17,7 @@
     href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
   >
 
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=20260920-1450">
 </head>
 
 <body>
@@ -96,12 +96,12 @@
 
       <label>
         開始日
-        <input type="date" id="dateFrom">
+        <input type="text" id="dateFrom" class="date-filter" inputmode="numeric" placeholder="YYYY-MM-DD" maxlength="10">
       </label>
 
       <label>
         終了日
-        <input type="date" id="dateTo">
+        <input type="text" id="dateTo" class="date-filter" inputmode="numeric" placeholder="YYYY-MM-DD" maxlength="10">
       </label>
 
       <label>

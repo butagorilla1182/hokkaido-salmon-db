@@ -14,14 +14,13 @@
   }
 
   function sourceLabel(row) {
-    return text(row?.["情報源"] || row?.["情報区分"] || "情報源");
+    return text(row?.["リンク表示"] || row?.["情報源"] || row?.["情報区分"] || "情報源");
   }
 
   function renderedRows() {
-    // catches / getDate / getCatchCount / trustScore は app.js と同じ
-    // classic-script のグローバル lexical scope なので直接参照できる。
     if (typeof catches === "undefined" || !Array.isArray(catches)) return [];
 
+    const fish = document.getElementById("fish")?.value || "all";
     const area = document.getElementById("area")?.value || "all";
     const caught = document.getElementById("caught")?.value || "all";
     const trust = document.getElementById("trust")?.value || "all";
@@ -31,12 +30,16 @@
     const sort = document.getElementById("sort")?.value || "new";
 
     let rows = catches.filter(row => {
+      const rowFish = text(row["魚種"]);
       const rowArea = text(row["エリア"]);
       const rowTime = text(row["時間帯"]);
       const rowTrust = text(row["信頼度"]);
       const rowDate = getDate(row);
       const count = getCatchCount(row);
 
+      // app.js render() と完全に同じフィルタ条件にする。
+      // ここから魚種条件が抜けると、カードと別行のURLが結び付いてしまう。
+      if (fish !== "all" && rowFish !== fish) return false;
       if (area !== "all" && rowArea !== area) return false;
       if (caught === "yes" && count <= 0) return false;
       if (caught === "no" && count > 0) return false;
@@ -79,7 +82,7 @@
       a.href = url;
       a.target = "_blank";
       a.rel = "noopener noreferrer";
-      a.textContent = `🔗 ${label || "元情報を開く"}`;
+      a.textContent = label.startsWith("🔗") ? label : `🔗 ${label || "元情報を開く"}`;
       a.style.color = "#177eaa";
       a.style.fontWeight = "700";
       a.style.textDecoration = "underline";
